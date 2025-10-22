@@ -1,56 +1,130 @@
-name: Deploy to Tomcat Environments
+name: CI/CD Pipeline for train-ticket-reservation Deployment
 
 on:
+  push:
+    branches:
+      - master
   workflow_dispatch:
-    inputs:
-      environment:
-        description: "Select environment to deploy"
-        required: true
-        default: "DEV"
-        type: choice
-        options:
-          - DEV
-          - TEST
-          - PRE_PROD_ENV
-          - PROD_ENV
 
 jobs:
-  deploy:
+  deploy-dev:
+    name: Build & Deploy to DEV
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout Repository
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set environment variables
-        run: |
-          if [ "${{ github.event.inputs.environment }}" == "DEV" ]; then
-            echo "TOMCAT_HOST=${{ secrets.TOMCAT_HOST_DEV }}" >> $GITHUB_ENV
-            echo "TOMCAT_USER=${{ secrets.TOMCAT_USER_DEV }}" >> $GITHUB_ENV
-            echo "TOMCAT_PASSWORD=${{ secrets.TOMCAT_PASSWORD_DEV }}" >> $GITHUB_ENV
-          elif [ "${{ github.event.inputs.environment }}" == "TEST" ]; then
-            echo "TOMCAT_HOST=${{ secrets.TOMCAT_HOST_TEST }}" >> $GITHUB_ENV
-            echo "TOMCAT_USER=${{ secrets.TOMCAT_USER_TEST }}" >> $GITHUB_ENV
-            echo "TOMCAT_PASSWORD=${{ secrets.TOMCAT_PASSWORD_TEST }}" >> $GITHUB_ENV
-          elif [ "${{ github.event.inputs.environment }}" == "PRE_PROD_ENV" ]; then
-            echo "TOMCAT_HOST=${{ secrets.TOMCAT_HOST_PRE_PROD_ENV }}" >> $GITHUB_ENV
-            echo "TOMCAT_USER=${{ secrets.TOMCAT_USER_PRE_PROD_ENV }}" >> $GITHUB_ENV
-            echo "TOMCAT_PASSWORD=${{ secrets.TOMCAT_PASSWORD_PRE_PROD_ENV }}" >> $GITHUB_ENV
-          elif [ "${{ github.event.inputs.environment }}" == "PROD_ENV" ]; then
-            echo "TOMCAT_HOST=${{ secrets.TOMCAT_HOST_PROD_ENV }}" >> $GITHUB_ENV
-            echo "TOMCAT_USER=${{ secrets.TOMCAT_USER_PROD_ENV }}" >> $GITHUB_ENV
-            echo "TOMCAT_PASSWORD=${{ secrets.TOMCAT_PASSWORD_PROD_ENV }}" >> $GITHUB_ENV
-          fi
+      - name: Set Up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
 
-      - name: Build WAR file
+      - name: Build WAR with Maven
         run: mvn clean package -DskipTests
 
-      - name: Deploy to Apache Tomcat
-        run: |
-          echo "Deploying to ${{ github.event.inputs.environment }} environment..."
-          curl -u ${{ env.TOMCAT_USER }}:${{ env.TOMCAT_PASSWORD }} \
-            -T target/*.war \
-            "http://${{ env.TOMCAT_HOST }}/manager/text/deploy?path=/myapp&update=true"
+      - name: Verify WAR File
+        run: ls -lh target/*.war
 
-      - name: Deployment Success Message
-        run: echo "✅ Successfully deployed to ${{ github.event.inputs.environment }}"
+      - name: Deploy WAR to Tomcat DEV
+        run: |
+          set -u
+          WAR_FILE=$(ls target/*.war)
+          echo "Deploying $WAR_FILE to DEV"
+          if [ -z "${{ secrets.TOMCAT_USER_DEV }}" ] || [ -z "${{ secrets.TOMCAT_PASSWORD_DEV }}" ] || [ -z "${{ secrets.TOMCAT_HOST_DEV }}" ]; then
+            echo "ERROR: DEV secrets are missing"
+            exit 1
+          fi
+          curl -v -u "${{ secrets.TOMCAT_USER_DEV }}:${{ secrets.TOMCAT_PASSWORD_DEV }}" \
+            -T "$WAR_FILE" \
+            "http://${{ secrets.TOMCAT_HOST_DEV }}:8080/manager/text/deploy?path=/trainbook-dev&update=true"
+
+  deploy-test:
+    name: Build & Deploy to TEST
+    runs-on: ubuntu-latest
+    needs: deploy-dev
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set Up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Build WAR with Maven
+        run: mvn clean package -DskipTests
+
+      - name: Deploy WAR to Tomcat TEST
+        run: |
+          set -u
+          WAR_FILE=$(ls target/*.war)
+          echo "Deploying $WAR_FILE to TEST"
+          if [ -z "${{ secrets.TOMCAT_USER_TEST }}" ] || [ -z "${{ secrets.TOMCAT_PASSWORD_TEST }}" ] || [ -z "${{ secrets.TOMCAT_HOST_TEST }}" ]; then
+            echo "ERROR: TEST secrets are missing"
+            exit 1
+          fi
+          curl -v -u "${{ secrets.TOMCAT_USER_TEST }}:${{ secrets.TOMCAT_PASSWORD_TEST }}" \
+            -T "$WAR_FILE" \
+            "http://${{ secrets.TOMCAT_HOST_TEST }}:8080/manager/text/deploy?path=/trainbook-test&update=true"
+
+  deploy-preprod:
+    name: Build & Deploy to PRE-PROD
+    runs-on: ubuntu-latest
+    needs: deploy-test
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set Up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Build WAR with Maven
+        run: mvn clean package -DskipTests
+
+      - name: Deploy WAR to Tomcat PRE-PROD
+        run: |
+          set -u
+          WAR_FILE=$(ls target/*.war)
+          echo "Deploying $WAR_FILE to PRE-PROD"
+          if [ -z "${{ secrets.TOMCAT_USER_PRE_PROD_ENV }}" ] || [ -z "${{ secrets.TOMCAT_PASSWORD_PRE_PROD_ENV }}" ] || [ -z "${{ secrets.TOMCAT_HOST_PRE_PROD_ENV }}" ]; then
+            echo "ERROR: PRE-PROD secrets are missing"
+            exit 1
+          fi
+          curl -v -u "${{ secrets.TOMCAT_USER_PRE_PROD_ENV }}:${{ secrets.TOMCAT_PASSWORD_PRE_PROD_ENV }}" \
+            -T "$WAR_FILE" \
+            "http://${{ secrets.TOMCAT_HOST_PRE_PROD_ENV }}:8080/manager/text/deploy?path=/trainbook-preprod&update=true"
+
+  deploy-prod:
+    name: Build & Deploy to PROD
+    runs-on: ubuntu-latest
+    needs: deploy-preprod
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set Up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Build WAR with Maven
+        run: mvn clean package -DskipTests
+
+      - name: Deploy WAR to Tomcat PROD
+        run: |
+          set -u
+          WAR_FILE=$(ls target/*.war)
+          echo "Deploying $WAR_FILE to PROD"
+          if [ -z "${{ secrets.TOMCAT_USER_PROD_ENV }}" ] || [ -z "${{ secrets.TOMCAT_PASSWORD_PROD_ENV }}" ] || [ -z "${{ secrets.TOMCAT_HOST_PROD_ENV }}" ]; then
+            echo "ERROR: PROD secrets are missing"
+            exit 1
+          fi
+          curl -v -u "${{ secrets.TOMCAT_USER_PROD_ENV }}:${{ secrets.TOMCAT_PASSWORD_PROD_ENV }}" \
+            -T "$WAR_FILE" \
+            "http://${{ secrets.TOMCAT_HOST_PROD_ENV }}:8080/manager/text/deploy?path=/trainbook-prod&update=true"
