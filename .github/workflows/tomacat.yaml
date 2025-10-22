@@ -1,58 +1,56 @@
-name: Deploy to Apache Tomcat Environments
+name: Deploy to Tomcat Environments
 
 on:
   workflow_dispatch:
     inputs:
       environment:
-        description: "Select environment to deploy (DEV, TEST, PRE-PROD, PROD)"
+        description: "Select environment to deploy"
         required: true
         default: "DEV"
         type: choice
         options:
           - DEV
           - TEST
-          - PRE-PROD
-          - PROD
+          - PRE_PROD_ENV
+          - PROD_ENV
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Build WAR Package
+      - name: Set environment variables
         run: |
-          mvn clean package -DskipTests
-
-      - name: Deploy to Selected Environment
-        env:
-          ENV: ${{ github.event.inputs.environment }}
-        run: |
-          echo "Deploying application to $ENV environment"
-
-          if [ "$ENV" == "DEV" ]; then
-            TOMCAT_SERVER="http://dev-server-ip:8080/manager/text"
-          elif [ "$ENV" == "TEST" ]; then
-            TOMCAT_SERVER="http://test-server-ip:8080/manager/text"
-          elif [ "$ENV" == "PRE-PROD" ]; then
-            TOMCAT_SERVER="http://preprod-server-ip:8080/manager/text"
-          elif [ "$ENV" == "PROD" ]; then
-            TOMCAT_SERVER="http://prod-server-ip:8080/manager/text"
+          if [ "${{ github.event.inputs.environment }}" == "DEV" ]; then
+            echo "TOMCAT_HOST=${{ secrets.TOMCAT_HOST_DEV }}" >> $GITHUB_ENV
+            echo "TOMCAT_USER=${{ secrets.TOMCAT_USER_DEV }}" >> $GITHUB_ENV
+            echo "TOMCAT_PASSWORD=${{ secrets.TOMCAT_PASSWORD_DEV }}" >> $GITHUB_ENV
+          elif [ "${{ github.event.inputs.environment }}" == "TEST" ]; then
+            echo "TOMCAT_HOST=${{ secrets.TOMCAT_HOST_TEST }}" >> $GITHUB_ENV
+            echo "TOMCAT_USER=${{ secrets.TOMCAT_USER_TEST }}" >> $GITHUB_ENV
+            echo "TOMCAT_PASSWORD=${{ secrets.TOMCAT_PASSWORD_TEST }}" >> $GITHUB_ENV
+          elif [ "${{ github.event.inputs.environment }}" == "PRE_PROD_ENV" ]; then
+            echo "TOMCAT_HOST=${{ secrets.TOMCAT_HOST_PRE_PROD_ENV }}" >> $GITHUB_ENV
+            echo "TOMCAT_USER=${{ secrets.TOMCAT_USER_PRE_PROD_ENV }}" >> $GITHUB_ENV
+            echo "TOMCAT_PASSWORD=${{ secrets.TOMCAT_PASSWORD_PRE_PROD_ENV }}" >> $GITHUB_ENV
+          elif [ "${{ github.event.inputs.environment }}" == "PROD_ENV" ]; then
+            echo "TOMCAT_HOST=${{ secrets.TOMCAT_HOST_PROD_ENV }}" >> $GITHUB_ENV
+            echo "TOMCAT_USER=${{ secrets.TOMCAT_USER_PROD_ENV }}" >> $GITHUB_ENV
+            echo "TOMCAT_PASSWORD=${{ secrets.TOMCAT_PASSWORD_PROD_ENV }}" >> $GITHUB_ENV
           fi
 
-          echo "Using Tomcat Server: $TOMCAT_SERVER"
+      - name: Build WAR file
+        run: mvn clean package -DskipTests
 
-          # Deploy WAR using curl
-          curl -T target/*.war "$TOMCAT_SERVER/deploy?path=/myapp&update=true" \
-            --user ${{ secrets.TOMCAT_USER }}:${{ secrets.TOMCAT_PASSWORD }}
+      - name: Deploy to Apache Tomcat
+        run: |
+          echo "Deploying to ${{ github.event.inputs.environment }} environment..."
+          curl -u ${{ env.TOMCAT_USER }}:${{ env.TOMCAT_PASSWORD }} \
+            -T target/*.war \
+            "http://${{ env.TOMCAT_HOST }}/manager/text/deploy?path=/myapp&update=true"
 
-      - name: Deployment Completed
-        run: echo "✅ Deployment to ${{ github.event.inputs.environment }} environment successful!"
+      - name: Deployment Success Message
+        run: echo "✅ Successfully deployed to ${{ github.event.inputs.environment }}"
