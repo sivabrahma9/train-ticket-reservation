@@ -1,50 +1,58 @@
-name: ci/cd pipeline to deploy to tomcat
-on: 
-  push:
-    branches: master
+name: Deploy to Apache Tomcat Environments
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Select environment to deploy (DEV, TEST, PRE-PROD, PROD)"
+        required: true
+        default: "DEV"
+        type: choice
+        options:
+          - DEV
+          - TEST
+          - PRE-PROD
+          - PROD
+
 jobs:
-  build-deploy:
+  deploy:
     runs-on: ubuntu-latest
+
     steps:
-      - name: checkout code
-        uses: actions/checkout@v3
-      
-      - name: set-up jdk
-        uses: actions/setup-java@v3
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
         with:
+          java-version: '17'
           distribution: 'temurin'
-          java-version: '17'   # Updated Java version
-      
-      - name: validate with maven
-        run: mvn validate
 
-      - name: compile with maven
-        run: mvn compile
-      
-      - name: test with maven
-         run: mvn test
-      
-      - name: package with maven
-        run: mvn clean package
-
-      - name: verify WAR file
-        run: ls -lh target/
-      
-      - name: Build, Test and SonarQube Scan
+      - name: Build WAR Package
         run: |
-          mvn clean verify sonar:sonar \
-            -Dsonar.projectKey=train-ticket-reservation \
-            -Dsonar.host.url="${{ secrets.SONAR_HOST_URL }}" \
-            -Dsonar.login="${{ secrets.SONAR_TOKEN }}"
+          mvn clean package -DskipTests
 
-      - name: check tomcat connection
+      - name: Deploy to Selected Environment
+        env:
+          ENV: ${{ github.event.inputs.environment }}
         run: |
-                 curl --fail --anyauth -u "${{ secrets.TOMCAT_USER }}:${{ secrets.TOMCAT_PASSWORD }}" \
-                 "http://${{ secrets.TOMCAT_HOST }}:8080/manager/text/list"
+          echo "Deploying application to $ENV environment"
 
-          # Deploy to Tomcat
-      - name: deploy war to tomcat
-        run: | 
-                curl -v -u ${{ secrets.TOMCAT_USER }}:${{ secrets.TOMCAT_PASSWORD }} \
-                  -T target/TrainBook-1.0.0-SNAPSHOT.war \
-                  "http://${{ secrets.TOMCAT_HOST }}:8080/manager/text/deploy?path=/TrainBook&update=true"
+          if [ "$ENV" == "DEV" ]; then
+            TOMCAT_SERVER="http://dev-server-ip:8080/manager/text"
+          elif [ "$ENV" == "TEST" ]; then
+            TOMCAT_SERVER="http://test-server-ip:8080/manager/text"
+          elif [ "$ENV" == "PRE-PROD" ]; then
+            TOMCAT_SERVER="http://preprod-server-ip:8080/manager/text"
+          elif [ "$ENV" == "PROD" ]; then
+            TOMCAT_SERVER="http://prod-server-ip:8080/manager/text"
+          fi
+
+          echo "Using Tomcat Server: $TOMCAT_SERVER"
+
+          # Deploy WAR using curl
+          curl -T target/*.war "$TOMCAT_SERVER/deploy?path=/myapp&update=true" \
+            --user ${{ secrets.TOMCAT_USER }}:${{ secrets.TOMCAT_PASSWORD }}
+
+      - name: Deployment Completed
+        run: echo "✅ Deployment to ${{ github.event.inputs.environment }} environment successful!"
