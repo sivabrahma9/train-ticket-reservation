@@ -1,0 +1,44 @@
+name: Build and Deploy Artifact to Nexus
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1️⃣ Checkout the repository
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2️⃣ Set up Java environment
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      # 3️⃣ Build the project using Maven
+      - name: Build with Maven
+        run: mvn clean package -DskipTests
+
+      # 4️⃣ Deploy artifact to Nexus Repository
+      - name: Upload artifact to Nexus
+        env:
+          NEXUS_URL: ${{ secrets.NEXUS_URL }}            # e.g. http://<your-nexus-ip>:8081/repository/maven-releases/
+          NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}  # stored in GitHub secrets
+          NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+        run: |
+          # Find the built artifact (WAR or JAR)
+          ARTIFACT_PATH=$(find target -type f \( -name "*.jar" -o -name "*.war" \) | head -n 1)
+          ARTIFACT_NAME=$(basename "$ARTIFACT_PATH")
+
+          echo "Uploading $ARTIFACT_NAME to Nexus..."
+          curl -v -u "$NEXUS_USERNAME:$NEXUS_PASSWORD" \
+            --upload-file "$ARTIFACT_PATH" \
+            "$NEXUS_URL/$ARTIFACT_NAME"
