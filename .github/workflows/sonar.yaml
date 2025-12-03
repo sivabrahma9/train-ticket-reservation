@@ -14,29 +14,28 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # Required for correct blame information
+          fetch-depth: 0  # Required for proper code analysis
 
-      - name: Set up JDK (Required for Sonar Scanner)
+      - name: Set up JDK
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      # OPTIONAL: For Node.js / React / Angular
-      # Remove if not needed
-      - name: Install Node.js dependencies
-        if: exists('package.json')
+      # OPTIONAL for Node.js / React etc.
+      - name: Install Node Modules
+        if: hashFiles('package-lock.json') != ''
         run: npm install
 
-      - name: Run SonarQube Scanner
+      - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v2
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
-      - name: Check SonarQube Quality Gate
+      - name: SonarQube Quality Gate
         uses: SonarSource/sonarqube-quality-gate-action@v2
-        timeout-minutes: 10
+        timeout-minutes: 5
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
