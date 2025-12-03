@@ -1,34 +1,41 @@
-name: SonarQube Scan
+name: SonarQube Code Analysis
 
 on:
   push:
-    branches: ["main"]
+    branches:
+      - main
   pull_request:
 
 jobs:
-  sonarQube:
+  sonar_scan:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Required for correct analysis
+          fetch-depth: 0   # Required for correct blame information
 
-      - name: Setup JDK
+      - name: Set up JDK (Required for Sonar Scanner)
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: SonarQube Scan
+      # OPTIONAL: For Node.js / React / Angular
+      # Remove if not needed
+      - name: Install Node.js dependencies
+        if: exists('package.json')
+        run: npm install
+
+      - name: Run SonarQube Scanner
         uses: SonarSource/sonarqube-scan-action@v2
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: "https://your-sonarqube-url.com"
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
-      - name: SonarQube Quality Gate
+      - name: Check SonarQube Quality Gate
         uses: SonarSource/sonarqube-quality-gate-action@v2
-        timeout-minutes: 5
+        timeout-minutes: 10
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
