@@ -17,39 +17,49 @@ jobs:
       - name: ☕ Set up Java
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
+          distribution: 'temurin'
           java-version: '17'
 
       - name: 🔨 Build with Maven
         run: mvn clean package -DskipTests
 
-      - name: 🔐 Configure AWS
+      - name: 🗂 Find WAR file
+        run: echo "WAR_FILE=$(ls target/*.war | head -n 1)" >> $GITHUB_ENV
+
+      - name: ⬆ Upload WAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: war-file
+          path: ${{ env.WAR_FILE }}
+
+      - name: Configure AWS
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.ACCESS_KEY_PASSWORD }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: 🔑 Login to Amazon ECR
+      - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: 🐳 Build, Tag & Push Docker Image
+      - name: Build Docker Image
+        run: |
+          IMAGE_TAG=$(date +%s)
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+          docker build -t ${{ secrets.ECR_REPOSITORY }}:$IMAGE_TAG .
+
+      - name: Tag Docker Image
         run: |
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          IMAGE_TAG=$(date +%s)
-          IMAGE_URI=$ACCOUNT_ID.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:$IMAGE_TAG
+          docker tag ${{ secrets.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }} \
+            $ACCOUNT_ID.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
 
-          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
-
-          docker build -t $IMAGE_URI .
-          docker push $IMAGE_URI
-
-      - name: 📝 Update ECS Task Definition
+      - name: Push to ECR
         run: |
-          sed -i "s|<IMAGE>|${{ env.IMAGE_URI }}|g" task-definition.json
-
-      - name: 🚀 Register New Task Definition
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          docker push $ACCOUNT_ID.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+      - name: Update ECS Task Definition
         run: |
-          aws ecs register-task-definition \
-            --cli-input-json file://task-definition.json
-
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          sed -i "s|<IMAGE>|$ACCOUNT_ID.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}|g" task-definition.json
+          cat task-definition.json > new-task.json
